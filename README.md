@@ -1,1 +1,18 @@
-# G6-face-recognition-attendance-system
+# Face Recognition Attendance System 
+
+Group 6 Team Members:
+1. Yasir Lutfan BIN YUSUF (Group Leader)
+2. Mohammad MOBIN
+3. Lim Zong Xin
+4. Lai Kok Wui
+
+## Step to run the application
+### 1. install all the requirements
+```
+pip install -r requirements.txt
+```
+### 2. run streamlit
+```
+streamlit run app.py
+```
+
