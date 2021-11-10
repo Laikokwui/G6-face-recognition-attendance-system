@@ -16,5 +16,5 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-##Appendix
+## Appendix
 Streamlit Multiple Page setup: https://github.com/prakharrathi25/data-storyteller/blob/main/multipage.py
