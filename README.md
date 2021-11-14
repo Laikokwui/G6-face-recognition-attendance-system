@@ -18,3 +18,4 @@ streamlit run app.py
 
 ## Appendix
 Streamlit Multiple Page setup: https://github.com/prakharrathi25/data-storyteller/blob/main/multipage.py
+Darknet Face Detect https://github.com/AlexeyAB/darknet (the one use on the project is not train using python)
