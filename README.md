@@ -11,7 +11,11 @@ Group 6 Team Members:
 ```
 pip install -r requirements.txt
 ```
-### 2. run streamlit
+### 2. download these files and put into yolov4 folder
+Link to the files: http://gofile.me/5Z8ao/wr8rtnOBl
+### 3. Install these dataset and extract to the Datasets folder
+Link to the files: http://gofile.me/5Z8ao/Se7iTfnU9
+### 4. run streamlit
 ```
 streamlit run app.py
 ```
