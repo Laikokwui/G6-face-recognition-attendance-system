@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, roc_auc_score
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.optimizers import Adam, schedules
+from tensorflow.keras.optimizers import Adam, schedules, SGD
 from tensorflow.keras.layers import Flatten, Dense, Conv2D, Dropout, BatchNormalization
 from tensorflow.keras.applications.resnet_v2 import ResNet50V2
 from tensorflow.keras.preprocessing import image
@@ -30,12 +30,13 @@ import warnings
 warnings.filterwarnings('ignore')
 
 ROOT = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/"
-IMG_WIDTH = 224
-IMG_HEIGHT = 224
+IMG_WIDTH = 64
+IMG_HEIGHT = 64
 BATCH_SIZE = 32
-EPOCH_SIZE = 1000
+EPOCH_SIZE = 100
 TRAINING = True
-PROCESSIMG = True
+PROCESSIMG = False
+DATA_BALANCE = False
 USE_GPU = True
 
 """
@@ -82,35 +83,59 @@ if PROCESSIMG:
             if len(faces) == 1:
                 count += 1
                 path = ROOT + "Datasets/classification/train/" + class_list[i] + "/"
-                cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), img)
+                
+                for (x, y, w, h) in faces:
+                    crop_img = img[y:y+h, x:x+w]
+                    cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), crop_img)
+                    
                 if (count==20):
                     break
         
         for file in glob(ROOT + "Datasets/classification_data/test_data/" + class_list[i] +"/*.jpg"):
+            img = cv2.imread(file)
             path = ROOT + "Datasets/classification/test/" + class_list[i] + "/"
             cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), img)
         
         for file in glob(ROOT + "Datasets/classification_data/val_data/" + class_list[i] +"/*.jpg"):
+            img = cv2.imread(file)
             path = ROOT + "Datasets/classification/val/" + class_list[i] + "/"
             cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), img)
+
+if DATA_BALANCE:
+    class_list = os.listdir(ROOT+"Datasets/classification_data/train_data")
+    print("check data imbalance") 
+                
+    for i in tqdm(range(len(class_list))):
+        numberofimage = os.listdir(ROOT+"Datasets/classification/train/"+class_list[i])
+        
+        if len(numberofimage) < 20:
+            count = len(numberofimage)
+            for file in glob(ROOT + "Datasets/classification_data/train_data/" + class_list[i] +"/*.jpg"):
+                img = cv2.imread(file)
+                count += 1
+                path = ROOT + "Datasets/classification/train/" + class_list[i] + "/"
+                cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), img)
+                    
+                if (count==20):
+                    break
 
 # training set image data generator
 # training set flow from directory
 Train_dir = ROOT+"Datasets/classification/train/"
-train_datagen = ImageDataGenerator(rescale = 1./255, rotation_range = 20, height_shift_range = 0.2,
-                                    zoom_range = 0.2, horizontal_flip = True, 
-                                    fill_mode = 'nearest')
-training_set = train_datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,IMG_HEIGHT),
-                                                 color_mode = "rgb", batch_size = BATCH_SIZE, 
+datagen = ImageDataGenerator(validation_split=0.2, rescale = 1./255, rotation_range = 20, height_shift_range = 0.2,
+                             zoom_range = 0.1, horizontal_flip = True, shear_range = 0.2, vertical_flip = True,
+                             width_shift_range = 0.2, fill_mode = 'nearest')
+training_set = datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,IMG_HEIGHT),
+                                                 color_mode = "rgb", batch_size = BATCH_SIZE, subset='training', 
                                                  shuffle = True, class_mode ='categorical')
 
 # image data generator for validation images
 # validation set using flow from directory
 Validation_dir = ROOT+"Datasets/classification/val/"
-validation_datagen = ImageDataGenerator(rescale = 1./255)
-validation_set = validation_datagen.flow_from_directory(Validation_dir, target_size = (IMG_WIDTH,IMG_HEIGHT),
-                                                        color_mode = "rgb", batch_size = BATCH_SIZE, shuffle = True,
-                                                        class_mode = 'categorical')
+valid_datagen=ImageDataGenerator(validation_split=0.2,rescale=1./255)
+validation_set = valid_datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,IMG_HEIGHT),
+                                                   color_mode = "rgb", batch_size = BATCH_SIZE, shuffle = True, subset='validation',
+                                                   class_mode = 'categorical')
 
 # image data generator for test images
 # test set using flow from directory
@@ -133,42 +158,32 @@ Model Settings
     - CNN model architecture
 """
 
-save_model = os.path.sep.join(["Model", "cnn.h5"])
-save_best_model = os.path.sep.join(["Model", "cnn_best.h5"])
+save_model = ROOT + "Model/cnn.h5"
+save_best_model = ROOT + "Model/cnn_best.h5"
 
-pretrined_model = ResNet50V2(include_top=False, weights="imagenet", pooling="avg", input_shape = (IMG_WIDTH,IMG_HEIGHT,3))
+pretrianed_model = ResNet50V2(include_top=False, weights="imagenet", pooling="avg", input_shape = (IMG_WIDTH,IMG_HEIGHT,3), classifier_activation='softmax')
 
-# adding regularization and relu to each conv2d layer      
-regularizer = regularizers.l2(0.0001)
-
-for i in range(len(pretrined_model.layers)):
-    pretrined_model.layers[i].trainable = False
-    if isinstance(pretrined_model.layers[i], Conv2D):
-        pretrined_model.layers[i].kernel_regularizer = regularizer
+pretrianed_model.trainable = False
         
 def cnn_model():
     model = Sequential([
-        pretrined_model,
+        pretrianed_model,
         Flatten(),
-        Dense(4096,kernel_regularizer=regularizers.l2(0.0001),activation="relu"),
-        Dropout(0.5),
-        BatchNormalization(),
-        Dense(4096,kernel_regularizer=regularizers.l2(0.0001),activation="relu"),
-        Dropout(0.5),
-        BatchNormalization(),
+        Dense(2048,activation="relu"),
+        Dense(4096,activation="relu"),
         Dense(len(folders), activation='softmax')
     ])
     
     # change learning rate according to number of epoch.
     num_train_steps = (len(training_set)//BATCH_SIZE) * EPOCH_SIZE
     lr_scheduler = schedules.PolynomialDecay(
-        initial_learning_rate = 1e-3,
-        end_learning_rate = 1e-4,
+        initial_learning_rate = 1e-2,
+        end_learning_rate = 1e-3,
         decay_steps = num_train_steps
     )
     
     # optimizers choices
-    opt1 = Adam(learning_rate = lr_scheduler)
+    opt1 = Adam(learning_rate = 0.001)
     
     # compile model
     model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = ["accuracy"])
@@ -177,7 +192,7 @@ def cnn_model():
     model.summary()
     
     # early stopping is useful if you want to get the best model
-    early = EarlyStopping(monitor = 'val_loss', patience = 20, verbose = 1, mode = 'min')
+    #early = EarlyStopping(monitor = 'val_loss', patience = 20, verbose = 1, mode = 'min')
     
     # uncomment to enable save the best model according to val_accuracy
     best_model = ModelCheckpoint(save_best_model, monitor = 'val_accuracy', verbose = 1, save_best_only = True, save_weights_only = False)
@@ -185,9 +200,38 @@ def cnn_model():
     # model fit
     history = model.fit(training_set
                         ,verbose = 1
+                        ,steps_per_epoch = (len(training_set)//BATCH_SIZE)*3
                         ,validation_data = validation_set
+                        ,validation_steps= (len(validation_set)//BATCH_SIZE)*3
                         ,epochs = EPOCH_SIZE
-                        ,callbacks = [best_model, early]
+                        ,callbacks = [best_model]
+                        )
+    
+    # fine tuning
+    pretrianed_model.trainable = True
+    model.summary()
+    
+    # change learning rate according to number of epoch.
+    num_train_steps = (len(training_set)//BATCH_SIZE) * (EPOCH_SIZE/2)
+    lr_scheduler = schedules.PolynomialDecay(
+        initial_learning_rate = 1e-3,
+        end_learning_rate = 1e-4,
+        decay_steps = num_train_steps
+    )
+    
+    # optimizers choices
+    opt1 = Adam(learning_rate = 0.0001)
+    
+    model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = ["accuracy"])
+    
+    # model fit
+    history = model.fit(training_set
+                        ,verbose = 1
+                        ,steps_per_epoch = (len(training_set)//BATCH_SIZE)*3
+                        ,validation_data = validation_set
+                        ,validation_steps= (len(validation_set)//BATCH_SIZE)*3
+                        ,epochs = EPOCH_SIZE/2
+                        ,callbacks = [best_model]
                         )
     
     # save model
@@ -205,7 +249,6 @@ Model evaluation
 """
     
 def model_evaluation():
-    print("Model VGG16")
     print("Average training accuracy: ", round(np.mean(history.history['accuracy'])*100,2))
     print("Average validation accuracy: ", round(np.mean(history.history['val_accuracy'])*100,2))
     
