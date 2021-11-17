@@ -15,12 +15,12 @@ from tqdm import tqdm
 import uuid
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.metrics import roc_curve, auc
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.optimizers import Adam, schedules, SGD
 from tensorflow.keras.layers import Flatten, Dense, Conv2D, Dropout, BatchNormalization
-from tensorflow.keras.applications.resnet_v2 import ResNet50V2
+from tensorflow.keras.applications.resnet_v2 import ResNet152V2
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
@@ -33,11 +33,11 @@ ROOT = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/"
 IMG_WIDTH = 64
 IMG_HEIGHT = 64
 BATCH_SIZE = 32
-EPOCH_SIZE = 100
+EPOCH_SIZE = 10
 TRAINING = True
 PROCESSIMG = False
 DATA_BALANCE = False
-USE_GPU = True
+NO_IMG_PER_CLASS = 25
 
 """
 Data Preparation
@@ -88,7 +88,7 @@ if PROCESSIMG:
                     crop_img = img[y:y+h, x:x+w]
                     cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), crop_img)
                     
-                if (count==20):
+                if (count==NO_IMG_PER_CLASS):
                     break
         
         for file in glob(ROOT + "Datasets/classification_data/test_data/" + class_list[i] +"/*.jpg"):
@@ -108,7 +108,7 @@ if DATA_BALANCE:
     for i in tqdm(range(len(class_list))):
         numberofimage = os.listdir(ROOT+"Datasets/classification/train/"+class_list[i])
         
-        if len(numberofimage) < 20:
+        if len(numberofimage) < NO_IMG_PER_CLASS:
             count = len(numberofimage)
             for file in glob(ROOT + "Datasets/classification_data/train_data/" + class_list[i] +"/*.jpg"):
                 img = cv2.imread(file)
@@ -116,13 +116,13 @@ if DATA_BALANCE:
                 path = ROOT + "Datasets/classification/train/" + class_list[i] + "/"
                 cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), img)
                     
-                if (count==20):
+                if (count==NO_IMG_PER_CLASS):
                     break
 
 # training set image data generator
 # training set flow from directory
 Train_dir = ROOT+"Datasets/classification/train/"
-datagen = ImageDataGenerator(validation_split=0.2, rescale = 1./255, rotation_range = 20, height_shift_range = 0.2,
+datagen = ImageDataGenerator(validation_split=0.3,rescale = 1./255, rotation_range = 60, height_shift_range = 0.2,
                              zoom_range = 0.1, horizontal_flip = True, shear_range = 0.2, vertical_flip = True,
                              width_shift_range = 0.2, fill_mode = 'nearest')
 training_set = datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,IMG_HEIGHT),
@@ -132,7 +132,7 @@ training_set = datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,I
 # image data generator for validation images
 # validation set using flow from directory
 Validation_dir = ROOT+"Datasets/classification/val/"
-valid_datagen=ImageDataGenerator(validation_split=0.2,rescale=1./255)
+valid_datagen=ImageDataGenerator(validation_split=0.3,rescale=1./255)
 validation_set = valid_datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,IMG_HEIGHT),
                                                    color_mode = "rgb", batch_size = BATCH_SIZE, shuffle = True, subset='validation',
                                                    class_mode = 'categorical')
@@ -160,30 +160,29 @@ Model Settings
 
 save_model = ROOT + "Model/cnn.h5"
 save_best_model = ROOT + "Model/cnn_best.h5"
-
-pretrianed_model = ResNet50V2(include_top=False, weights="imagenet", pooling="avg", input_shape = (IMG_WIDTH,IMG_HEIGHT,3), classifier_activation='softmax')
-
-pretrianed_model.trainable = False
         
 def cnn_model():
+    pretrianed_model = ResNet152V2(include_top=False
+                                ,weights="imagenet"
+                                ,pooling=None
+                                ,input_shape = (IMG_WIDTH,IMG_HEIGHT,3)
+                                ,classifier_activation='softmax')
+
+    pretrianed_model.trainable = False
+
+    pretrianed_model.summary()
+    
     model = Sequential([
         pretrianed_model,
         Flatten(),
-        Dense(2048,activation="relu"),
-        Dense(4096,activation="relu"),
+        Dense(4096, kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),activation="relu"),
+        Dropout(0.5),
+        BatchNormalization(),
         Dense(len(folders), activation='softmax')
     ])
     
-    # change learning rate according to number of epoch.
-    num_train_steps = (len(training_set)//BATCH_SIZE) * EPOCH_SIZE
-    lr_scheduler = schedules.PolynomialDecay(
-        initial_learning_rate = 1e-2,
-        end_learning_rate = 1e-3,
-        decay_steps = num_train_steps
-    )
-    
     # optimizers choices
-    opt1 = Adam(learning_rate = 0.001)
+    opt1 = SGD(learning_rate = 0.1, momentum=0.9, decay=0.01)
     
     # compile model
     model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = ["accuracy"])
@@ -198,39 +197,35 @@ def cnn_model():
     best_model = ModelCheckpoint(save_best_model, monitor = 'val_accuracy', verbose = 1, save_best_only = True, save_weights_only = False)
     
     # model fit
-    history = model.fit(training_set
-                        ,verbose = 1
-                        ,steps_per_epoch = (len(training_set)//BATCH_SIZE)*3
-                        ,validation_data = validation_set
-                        ,validation_steps= (len(validation_set)//BATCH_SIZE)*3
-                        ,epochs = EPOCH_SIZE
-                        ,callbacks = [best_model]
-                        )
+    model.fit(training_set
+            ,verbose = 1
+            ,steps_per_epoch = training_set.n//training_set.batch_size
+            ,validation_data = validation_set
+            ,validation_steps= validation_set.n//validation_set.batch_size
+            ,epochs = EPOCH_SIZE
+            ,callbacks = [best_model]
+            )
     
     # fine tuning
     pretrianed_model.trainable = True
-    model.summary()
     
-    # change learning rate according to number of epoch.
-    num_train_steps = (len(training_set)//BATCH_SIZE) * (EPOCH_SIZE/2)
-    lr_scheduler = schedules.PolynomialDecay(
-        initial_learning_rate = 1e-3,
-        end_learning_rate = 1e-4,
-        decay_steps = num_train_steps
-    )
+    # print model summary
+    pretrianed_model.summary()
     
     # optimizers choices
-    opt1 = Adam(learning_rate = 0.0001)
+    opt1 = SGD(learning_rate = 0.01, momentum=0.99, decay=0.001)
     
     model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = ["accuracy"])
+    
+    model.summary()
     
     # model fit
     history = model.fit(training_set
                         ,verbose = 1
-                        ,steps_per_epoch = (len(training_set)//BATCH_SIZE)*3
+                        ,steps_per_epoch = training_set.n//training_set.batch_size
                         ,validation_data = validation_set
-                        ,validation_steps= (len(validation_set)//BATCH_SIZE)*3
-                        ,epochs = EPOCH_SIZE/2
+                        ,validation_steps= validation_set.n//validation_set.batch_size
+                        ,epochs = 50
                         ,callbacks = [best_model]
                         )
     
@@ -238,6 +233,7 @@ def cnn_model():
     model.save(save_model)
     
     return model, history
+
 
 if (TRAINING):
     model, history = cnn_model()
@@ -275,16 +271,18 @@ def model_evaluation():
     plt.ylabel('Loss')
     plt.title('Training and validation loss')
     
-    
     plt.show()
+
 
 if (TRAINING):
     model_evaluation()
     
-imgpath = os.path.sep.join(["classification_data", "test_data", "n000003", "0131_01.jpg"])
-test_img = image.load_img(imgpath, target_size=(IMG_WIDTH,IMG_HEIGHT))
-test_img = image.img_to_array(test_img)
-test_img = np.expand_dims(test_img,axis=0)
-result = model.predict(test_img,verbose=0)
-
-print('Prediction is: ', ResultMap[np.argmax(result)])
+y_pred = model.predict(test_set).ravel()
+fpr = dict()
+tpr = dict()
+roc_auc = dict()
+for i in range(len(folders)):
+    fpr[i], tpr[i], threshold = roc_curve(test_set[:i], y_pred[:i])
+    roc_auc[i] = auc(fpr[i], tpr[i])
+    plt.plot(fpr[i], tpr[i], marker='.', label='Neural Network (auc = %0.3f)' % roc_auc[i])
+    plt.show()
