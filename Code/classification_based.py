@@ -33,74 +33,153 @@ ROOT = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/"
 IMG_WIDTH = 64
 IMG_HEIGHT = 64
 BATCH_SIZE = 32
-EPOCH_SIZE = 10
+EPOCH_SIZE = 50
+
 TRAINING = True
 PROCESSIMG = False
 DATA_BALANCE = False
+USE_GPU = True
 NO_IMG_PER_CLASS = 25
 
 """
 Data Preparation
-"""    
-if PROCESSIMG:
+"""
+# detect faces using Yolov4
+def detect_face(frame, net, ln, min_conf, nms_thresh, objIdx):
+    results = []
+    boxes = []
+    centroids = []
+    confidences = []
+    
+    (H, W) = frame.shape[:2]
+    blob = cv2.dnn.blobFromImage(frame, 1 / 255.0, (416, 416),swapRB=True, crop=False)
+    net.setInput(blob)
+    layerOutputs = net.forward(ln)
+    
+    for output in layerOutputs:
+        for detection in output:
+            scores = detection[5:]
+            classID = np.argmax(scores)
+            confidence = scores[classID]
+            
+            if classID == objIdx and confidence > min_conf:
+                box = detection[0:4] * np.array([W, H, W, H])
+                (centerX, centerY, width, height) = box.astype("int")
+                x = int(centerX - (width / 2))
+                y = int(centerY - (height / 2))
+                boxes.append([x, y, int(width), int(height)])
+                centroids.append((centerX, centerY))
+                confidences.append(float(confidence))
+                
+    idxs = cv2.dnn.NMSBoxes(boxes, confidences, min_conf, nms_thresh)
+    
+    if len(idxs) > 0:
+        for i in idxs.flatten():
+            (x, y) = (boxes[i][0], boxes[i][1])
+            (w, h) = (boxes[i][2], boxes[i][3])
+            r = ((x, y, x + w, y + h))
+            results.append(r)
+            
+    return results
+
+
+if PROCESSIMG:  
+    # Set parameters for yoloV4
+    labelsPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/obj.names"
+    weightsPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/yolov4-obj_last.weights"
+    configPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/yolov4-obj.cfg"
+    LABELS = open(labelsPath).read().strip().split("\n")
+    
+    # Load YoloV4
+    net = cv2.dnn.readNetFromDarknet(configPath, weightsPath)
+    
+    # use gpu
+    if USE_GPU:
+        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+    
+    # get darknet layers
+    ln = net.getLayerNames()
+    ln = [ln[x - 1] for x in net.getUnconnectedOutLayers()]
+    
     # create dataset folders
     if not os.path.isdir(ROOT+"Datasets"):
         os.mkdir(ROOT+"Datasets")
     
+    # create a folder to store all images use for this training session
     if not os.path.isdir(ROOT+"Datasets/classification"):
         os.mkdir(ROOT+"Datasets/classification")
-        
+    
+    # create train folder to store training image
     if not os.path.isdir(ROOT+"Datasets/classification/train"):
         os.mkdir(ROOT+"Datasets/classification/train")
-        
+    
+    # create test folder to store test images
     if not os.path.isdir(ROOT+"Datasets/classification/test"):
         os.mkdir(ROOT+"Datasets/classification/test")
-        
+    
+    # create validation folder for validation images
     if not os.path.isdir(ROOT+"Datasets/classification/val"):
         os.mkdir(ROOT+"Datasets/classification/val")
     
     # Create new sub folders for all the classes
     class_list = os.listdir(ROOT+"Datasets/classification_data/train_data")
-
-    for i in tqdm(range(len(class_list))):
+    
+    # loop through all the classes
+    for class_name in tqdm(range(len(class_list))):
         count = 0
-        if not os.path.isdir(ROOT+"Datasets/classification/test/"+class_list[i]):
-            os.mkdir(ROOT+"Datasets/classification/test/"+class_list[i])
+        if not os.path.isdir(ROOT+"Datasets/classification/test/"+class_list[class_name]):
+            os.mkdir(ROOT+"Datasets/classification/test/"+class_list[class_name])
             
-        if not os.path.isdir(ROOT+"Datasets/classification/train/"+class_list[i]):
-            os.mkdir(ROOT+"Datasets/classification/train/"+class_list[i])
+        if not os.path.isdir(ROOT+"Datasets/classification/train/"+class_list[class_name]):
+            os.mkdir(ROOT+"Datasets/classification/train/"+class_list[class_name])
             
-        if not os.path.isdir(ROOT+"Datasets/classification/val/"+class_list[i]):
-            os.mkdir(ROOT+"Datasets/classification/val/"+class_list[i])
-                  
-        for file in glob(ROOT + "Datasets/classification_data/train_data/" + class_list[i] +"/*.jpg"):
-            img = cv2.imread(file)
-            
-            face_cascade = cv2.CascadeClassifier(ROOT+'opencv/haarcascade_frontalface_default.xml')
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.05, minNeighbors=5)
-            
-            if len(faces) == 1:
-                count += 1
-                path = ROOT + "Datasets/classification/train/" + class_list[i] + "/"
-                
-                for (x, y, w, h) in faces:
-                    crop_img = img[y:y+h, x:x+w]
-                    cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), crop_img)
-                    
-                if (count==NO_IMG_PER_CLASS):
-                    break
+        if not os.path.isdir(ROOT+"Datasets/classification/val/"+class_list[class_name]):
+            os.mkdir(ROOT+"Datasets/classification/val/"+class_list[class_name])
         
-        for file in glob(ROOT + "Datasets/classification_data/test_data/" + class_list[i] +"/*.jpg"):
+        # filter image inside original dataset
+        for file in glob(ROOT + "Datasets/classification_data/train_data/" + class_list[class_name] +"/*.jpg"):
+            # read images
+            img = cv2.imread(file, 1)
+            
+            # detect face location and how many are there
+            results = detect_face(img, net, ln, 0.3, 0.3, objIdx=LABELS.index("face"))
+            
+            # if there are only one face in the image
+            if len(results) == 1:
+                # loop through results to get the face location
+                for (i, (bbox)) in enumerate(results):
+                    # get the coordinate from bbox
+                    (startX, startY, endX, endY) = bbox
+                    
+                    # crop the image
+                    crop_img = img[startY:endY, startX:endX]
+                    
+                    # try save the image if not pass
+                    try:
+                        path = ROOT + "Datasets/classification/train/" + class_list[class_name] + "/"
+                        cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), crop_img)
+                        count += 1
+                    except:
+                        pass
+            # if the count meet the number of images per class       
+            if (count==NO_IMG_PER_CLASS):
+                # break the loop
+                break
+        
+        # get test images from test data folder
+        for file in glob(ROOT + "Datasets/classification_data/test_data/" + class_list[class_name] +"/*.jpg"):
             img = cv2.imread(file)
-            path = ROOT + "Datasets/classification/test/" + class_list[i] + "/"
+            path = ROOT + "Datasets/classification/test/" + class_list[class_name] + "/"
             cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), img)
         
-        for file in glob(ROOT + "Datasets/classification_data/val_data/" + class_list[i] +"/*.jpg"):
+        # get validation images from val data folder
+        for file in glob(ROOT + "Datasets/classification_data/val_data/" + class_list[class_name] +"/*.jpg"):
             img = cv2.imread(file)
-            path = ROOT + "Datasets/classification/val/" + class_list[i] + "/"
+            path = ROOT + "Datasets/classification/val/" + class_list[class_name] + "/"
             cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), img)
 
+# to check whether the amount of data for each folder is the same
 if DATA_BALANCE:
     class_list = os.listdir(ROOT+"Datasets/classification_data/train_data")
     print("check data imbalance") 
@@ -109,20 +188,12 @@ if DATA_BALANCE:
         numberofimage = os.listdir(ROOT+"Datasets/classification/train/"+class_list[i])
         
         if len(numberofimage) < NO_IMG_PER_CLASS:
-            count = len(numberofimage)
-            for file in glob(ROOT + "Datasets/classification_data/train_data/" + class_list[i] +"/*.jpg"):
-                img = cv2.imread(file)
-                count += 1
-                path = ROOT + "Datasets/classification/train/" + class_list[i] + "/"
-                cv2.imwrite(os.path.join(path , '{}.jpg'.format(uuid.uuid1())), img)
-                    
-                if (count==NO_IMG_PER_CLASS):
-                    break
+            print("Class ", class_list[i], " only have ", len(numberofimage), " of images.")
 
 # training set image data generator
 # training set flow from directory
 Train_dir = ROOT+"Datasets/classification/train/"
-datagen = ImageDataGenerator(validation_split=0.3,rescale = 1./255, rotation_range = 60, height_shift_range = 0.2,
+datagen = ImageDataGenerator(validation_split=0.2,rescale = 1./255, rotation_range = 60, height_shift_range = 0.2,
                              zoom_range = 0.1, horizontal_flip = True, shear_range = 0.2, vertical_flip = True,
                              width_shift_range = 0.2, fill_mode = 'nearest')
 training_set = datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,IMG_HEIGHT),
@@ -132,7 +203,7 @@ training_set = datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,I
 # image data generator for validation images
 # validation set using flow from directory
 Validation_dir = ROOT+"Datasets/classification/val/"
-valid_datagen=ImageDataGenerator(validation_split=0.3,rescale=1./255)
+valid_datagen=ImageDataGenerator(validation_split=0.2,rescale=1./255)
 validation_set = valid_datagen.flow_from_directory(Train_dir, target_size = (IMG_WIDTH,IMG_HEIGHT),
                                                    color_mode = "rgb", batch_size = BATCH_SIZE, shuffle = True, subset='validation',
                                                    class_mode = 'categorical')
@@ -162,18 +233,14 @@ save_model = ROOT + "Model/cnn.h5"
 save_best_model = ROOT + "Model/cnn_best.h5"
         
 def cnn_model():
-    pretrianed_model = ResNet152V2(include_top=False
-                                ,weights="imagenet"
-                                ,pooling=None
-                                ,input_shape = (IMG_WIDTH,IMG_HEIGHT,3)
-                                ,classifier_activation='softmax')
+    pretrained_model = ResNet152V2(include_top=False ,weights="imagenet" ,pooling=None ,input_shape = (IMG_WIDTH,IMG_HEIGHT,3) ,classifier_activation='softmax')
 
-    pretrianed_model.trainable = False
+    pretrained_model.trainable = False
 
-    pretrianed_model.summary()
+    pretrained_model.summary()
     
     model = Sequential([
-        pretrianed_model,
+        pretrained_model,
         Flatten(),
         Dense(4096, kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),activation="relu"),
         Dropout(0.5),
@@ -197,20 +264,13 @@ def cnn_model():
     best_model = ModelCheckpoint(save_best_model, monitor = 'val_accuracy', verbose = 1, save_best_only = True, save_weights_only = False)
     
     # model fit
-    model.fit(training_set
-            ,verbose = 1
-            ,steps_per_epoch = training_set.n//training_set.batch_size
-            ,validation_data = validation_set
-            ,validation_steps= validation_set.n//validation_set.batch_size
-            ,epochs = EPOCH_SIZE
-            ,callbacks = [best_model]
-            )
+    model.fit(training_set ,verbose = 1 ,steps_per_epoch = training_set.n//training_set.batch_size ,validation_data = validation_set ,validation_steps= validation_set.n//validation_set.batch_size ,epochs = EPOCH_SIZE ,callbacks = [best_model])
     
     # fine tuning
-    pretrianed_model.trainable = True
+    pretrained_model.trainable = True
     
     # print model summary
-    pretrianed_model.summary()
+    pretrained_model.summary()
     
     # optimizers choices
     opt1 = SGD(learning_rate = 0.01, momentum=0.99, decay=0.001)
@@ -220,14 +280,7 @@ def cnn_model():
     model.summary()
     
     # model fit
-    history = model.fit(training_set
-                        ,verbose = 1
-                        ,steps_per_epoch = training_set.n//training_set.batch_size
-                        ,validation_data = validation_set
-                        ,validation_steps= validation_set.n//validation_set.batch_size
-                        ,epochs = 50
-                        ,callbacks = [best_model]
-                        )
+    history = model.fit(training_set ,verbose = 1 ,steps_per_epoch = training_set.n//training_set.batch_size ,validation_data = validation_set ,validation_steps= validation_set.n//validation_set.batch_size ,epochs = EPOCH_SIZE ,callbacks = [best_model])
     
     # save model
     model.save(save_model)
@@ -237,7 +290,7 @@ def cnn_model():
 
 if (TRAINING):
     model, history = cnn_model()
-
+    
 """
 Model evaluation
     - unpack all the loss and accuracy value
@@ -272,10 +325,7 @@ def model_evaluation():
     plt.title('Training and validation loss')
     
     plt.show()
-
-
-if (TRAINING):
-    model_evaluation()
+ 
     
 y_pred = model.predict(test_set).ravel()
 fpr = dict()
