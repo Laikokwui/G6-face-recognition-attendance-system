@@ -25,6 +25,7 @@ from tensorflow.keras.preprocessing import image
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 import warnings
+import utilities
 
 # ignore warnings
 warnings.filterwarnings('ignore')
@@ -44,63 +45,12 @@ NO_IMG_PER_CLASS = 25
 """
 Data Preparation
 """
-# detect faces using Yolov4
-def detect_face(frame, net, ln, min_conf, nms_thresh, objIdx):
-    results = []
-    boxes = []
-    centroids = []
-    confidences = []
-    
-    (H, W) = frame.shape[:2]
-    blob = cv2.dnn.blobFromImage(frame, 1 / 255.0, (416, 416),swapRB=True, crop=False)
-    net.setInput(blob)
-    layerOutputs = net.forward(ln)
-    
-    for output in layerOutputs:
-        for detection in output:
-            scores = detection[5:]
-            classID = np.argmax(scores)
-            confidence = scores[classID]
-            
-            if classID == objIdx and confidence > min_conf:
-                box = detection[0:4] * np.array([W, H, W, H])
-                (centerX, centerY, width, height) = box.astype("int")
-                x = int(centerX - (width / 2))
-                y = int(centerY - (height / 2))
-                boxes.append([x, y, int(width), int(height)])
-                centroids.append((centerX, centerY))
-                confidences.append(float(confidence))
-                
-    idxs = cv2.dnn.NMSBoxes(boxes, confidences, min_conf, nms_thresh)
-    
-    if len(idxs) > 0:
-        for i in idxs.flatten():
-            (x, y) = (boxes[i][0], boxes[i][1])
-            (w, h) = (boxes[i][2], boxes[i][3])
-            r = ((x, y, x + w, y + h))
-            results.append(r)
-            
-    return results
-
-
 if PROCESSIMG:  
     # Set parameters for yoloV4
     labelsPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/obj.names"
     weightsPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/yolov4-obj_last.weights"
     configPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/yolov4-obj.cfg"
-    LABELS = open(labelsPath).read().strip().split("\n")
-    
-    # Load YoloV4
-    net = cv2.dnn.readNetFromDarknet(configPath, weightsPath)
-    
-    # use gpu
-    if USE_GPU:
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-    
-    # get darknet layers
-    ln = net.getLayerNames()
-    ln = [ln[x - 1] for x in net.getUnconnectedOutLayers()]
+    net, ln, labels = utilities.Yolov4Setup(labelsPath, weightsPath, configPath, True)
     
     # create dataset folders
     if not os.path.isdir(ROOT+"Datasets"):
@@ -143,7 +93,7 @@ if PROCESSIMG:
             img = cv2.imread(file, 1)
             
             # detect face location and how many are there
-            results = detect_face(img, net, ln, 0.3, 0.3, objIdx=LABELS.index("face"))
+            results = utilities.detect_face(img, net, ln, 0.3, 0.3, objIdx=labels.index("face"))
             
             # if there are only one face in the image
             if len(results) == 1:
