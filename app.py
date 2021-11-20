@@ -13,7 +13,7 @@ from Pages import home, about
 app = MultiPage()
 
 # Title of the main page
-st.title("Group 7 - ML Assignment")
+st.title("Group 6 - ML Assignment")
 
 # Add all your application here
 app.add_page("Home", home.app)
