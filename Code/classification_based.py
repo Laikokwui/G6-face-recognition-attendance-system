@@ -36,7 +36,7 @@ ROOT = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/"
 IMG_WIDTH = 64
 IMG_HEIGHT = 64
 BATCH_SIZE = 32
-EPOCH_SIZE = 100
+EPOCH_SIZE = 50
 
 TRAINING = True
 PROCESSIMG = False
@@ -170,12 +170,6 @@ test_set = test_datagen.flow_from_directory(Test_dir, target_size = (IMG_WIDTH,I
 # get number of classes. its great for flexibility
 folders = glob(Train_dir + "/*")
 
-# store the faces into a dictionary to act as a face database.
-ResultMap = {}
-TrainClasses = training_set.class_indices
-for faceValue,faceName in zip(TrainClasses.values(), TrainClasses.keys()):
-    ResultMap[faceValue]=faceName
-
 """
 Model Settings
     - CNN model architecture
@@ -213,7 +207,7 @@ def cnn_model():
         ]
     
     # optimizers choices
-    opt1 = SGD(learning_rate = 0.1, momentum=0.9, decay=0.01)
+    opt1 = SGD(learning_rate = 0.1, decay=0.01)
     
     # compile model
     model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = [METRICS,"accuracy"])
@@ -237,7 +231,7 @@ def cnn_model():
     pretrained_model.summary()
     
     # optimizers choices
-    opt1 = SGD(learning_rate = 0.01, momentum=0.99, decay=0.001)
+    opt1 = SGD(learning_rate = 0.01, decay=0.01)
     
     model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = [METRICS,"accuracy"])
     
@@ -316,6 +310,8 @@ def model_evaluation():
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('Training and validation loss')
+    
+    model = keras.models.load_model(save_best_model)
     
     train_predictions = model.predict(training_set, batch_size=BATCH_SIZE)
     test_predictions = model.predict(test_set, batch_size=BATCH_SIZE)
