@@ -6,7 +6,6 @@ Created on Sat Nov  6 20:44:38 2021
 """
 
 import cv2
-import tensorflow as tf
 import keras
 import os
 from glob import glob
@@ -14,17 +13,20 @@ import sys
 from tqdm import tqdm
 import uuid
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, auc
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.optimizers import Adam, schedules, SGD
-from tensorflow.keras.layers import Flatten, Dense, Conv2D, Dropout, BatchNormalization
+from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.layers import Flatten, Dense, Dropout, BatchNormalization
 from tensorflow.keras.applications.resnet_v2 import ResNet152V2
-from tensorflow.keras.preprocessing import image
 from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, confusion_matrix
+import seaborn as sns
+
 import warnings
+
 import utilities
 
 # ignore warnings
@@ -34,7 +36,7 @@ ROOT = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/"
 IMG_WIDTH = 64
 IMG_HEIGHT = 64
 BATCH_SIZE = 32
-EPOCH_SIZE = 50
+EPOCH_SIZE = 100
 
 TRAINING = True
 PROCESSIMG = False
@@ -198,23 +200,35 @@ def cnn_model():
         Dense(len(folders), activation='softmax')
     ])
     
+    METRICS = [
+            keras.metrics.TruePositives(name='tp'),
+            keras.metrics.FalsePositives(name='fp'),
+            keras.metrics.TrueNegatives(name='tn'),
+            keras.metrics.FalseNegatives(name='fn'), 
+            keras.metrics.CategoricalAccuracy(name='c_accuracy'),
+            keras.metrics.Precision(name='precision'),
+            keras.metrics.Recall(name='recall'),
+            keras.metrics.AUC(name='auc'),
+            keras.metrics.AUC(name='prc', curve='PR'), # precision-recall curve
+        ]
+    
     # optimizers choices
     opt1 = SGD(learning_rate = 0.1, momentum=0.9, decay=0.01)
     
     # compile model
-    model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = ["accuracy"])
+    model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = [METRICS,"accuracy"])
     
     # print out model summary
     model.summary()
     
     # early stopping is useful if you want to get the best model
-    #early = EarlyStopping(monitor = 'val_loss', patience = 20, verbose = 1, mode = 'min')
+    early = EarlyStopping(monitor = 'val_loss', patience = 5, verbose = 1, mode = 'min')
     
     # uncomment to enable save the best model according to val_accuracy
     best_model = ModelCheckpoint(save_best_model, monitor = 'val_accuracy', verbose = 1, save_best_only = True, save_weights_only = False)
     
     # model fit
-    model.fit(training_set ,verbose = 1 ,steps_per_epoch = training_set.n//training_set.batch_size ,validation_data = validation_set ,validation_steps= validation_set.n//validation_set.batch_size ,epochs = EPOCH_SIZE ,callbacks = [best_model])
+    model.fit(training_set ,verbose = 1 ,steps_per_epoch = training_set.n//training_set.batch_size ,validation_data = validation_set ,validation_steps= validation_set.n//validation_set.batch_size ,epochs = EPOCH_SIZE ,callbacks = [best_model,early])
     
     # fine tuning
     pretrained_model.trainable = True
@@ -225,12 +239,12 @@ def cnn_model():
     # optimizers choices
     opt1 = SGD(learning_rate = 0.01, momentum=0.99, decay=0.001)
     
-    model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = ["accuracy"])
+    model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = [METRICS,"accuracy"])
     
     model.summary()
     
     # model fit
-    history = model.fit(training_set ,verbose = 1 ,steps_per_epoch = training_set.n//training_set.batch_size ,validation_data = validation_set ,validation_steps= validation_set.n//validation_set.batch_size ,epochs = EPOCH_SIZE ,callbacks = [best_model])
+    history = model.fit(training_set ,verbose = 1 ,steps_per_epoch = training_set.n//training_set.batch_size ,validation_data = validation_set ,validation_steps= validation_set.n//validation_set.batch_size ,epochs = EPOCH_SIZE ,callbacks = [best_model,early])
     
     # save model
     model.save(save_model)
@@ -246,7 +260,36 @@ Model evaluation
     - unpack all the loss and accuracy value
     - plot it down using plt
 """
+colors = plt.rcParams['axes.prop_cycle'].by_key()['color'] 
+   
+def plot_roc(name, labels, predictions, **kwargs):
+    fp, tp, _ = roc_curve(labels, predictions)
     
+    plt.plot(100*fp, 100*tp, label=name, linewidth=2, **kwargs)
+    plt.xlabel('False positives [%]')
+    plt.ylabel('True positives [%]')
+    plt.xlim([-0.5,20])
+    plt.ylim([80,100.5])
+    plt.grid(True)
+    ax = plt.gca()
+    ax.set_aspect('equal')
+
+
+def plot_cm(labels, predictions, p=0.5):
+    cm = confusion_matrix(labels, predictions > p)
+    plt.figure(figsize=(5,5))
+    sns.heatmap(cm, annot=True, fmt="d")
+    plt.title('Confusion matrix @{:.2f}'.format(p))
+    plt.ylabel('Actual label')
+    plt.xlabel('Predicted label')
+      
+    print('Legitimate Transactions Detected (True Negatives): ', cm[0][0])
+    print('Legitimate Transactions Incorrectly Detected (False Positives): ', cm[0][1])
+    print('Fraudulent Transactions Missed (False Negatives): ', cm[1][0])
+    print('Fraudulent Transactions Detected (True Positives): ', cm[1][1])
+    print('Total Fraudulent Transactions: ', np.sum(cm[1]))
+
+
 def model_evaluation():
     print("Average training accuracy: ", round(np.mean(history.history['accuracy'])*100,2))
     print("Average validation accuracy: ", round(np.mean(history.history['val_accuracy'])*100,2))
@@ -274,15 +317,22 @@ def model_evaluation():
     plt.ylabel('Loss')
     plt.title('Training and validation loss')
     
+    train_predictions = model.predict(training_set, batch_size=BATCH_SIZE)
+    test_predictions = model.predict(test_set, batch_size=BATCH_SIZE)
+    plot_roc("Train", training_set.labels, train_predictions, color=colors[0])
+    plot_roc("Test", test_set.labels, test_predictions, color=colors[0], linestyle='--')
+
+    plt.legend(loc='lower right')
+    
+    baseline_results = model.evaluate(test_set, test_set.labels, batch_size=BATCH_SIZE, verbose=0)
+    for name, value in zip(model.metrics_names, baseline_results):
+      print(name, ': ', value)
+    print()
+
+    plot_cm(test_set.labels, test_predictions)
+    
     plt.show()
  
-    
-y_pred = model.predict(test_set).ravel()
-fpr = dict()
-tpr = dict()
-roc_auc = dict()
-for i in range(len(folders)):
-    fpr[i], tpr[i], threshold = roc_curve(test_set[:i], y_pred[:i])
-    roc_auc[i] = auc(fpr[i], tpr[i])
-    plt.plot(fpr[i], tpr[i], marker='.', label='Neural Network (auc = %0.3f)' % roc_auc[i])
-    plt.show()
+if TRAINING:
+    model_evaluation()
+
