@@ -2,6 +2,56 @@ import io
 import math
 import os
 
+import sys, math
+
+def smlb_log(*message, sep:str=" "):
+	print("[SMLB]", *message, sep=sep)
+
+def smlb_log_error(*message, sep:str=" "):
+	print("[SMLB]", *message, sep=sep, file=sys.stderr)
+
+smlb_log("Importing modules...")
+
+smlb_log("Loading TensorFlow... this may take a long while.")
+import tensorflow as TensorFlow
+Keras = TensorFlow.keras
+smlb_log("TensorFlow loaded! TensorFlow version is", TensorFlow.__version__ + ".")
+
+smlb_log("Loading NumPy...")
+import numpy as NumPy
+smlb_log("NumPy loaded!")
+
+smlb_log("Loading PyPlot...")
+from matplotlib import pyplot as PyPlot
+smlb_log("PyPlot loaded!")
+
+smlb_log("All imports successful!")
+
+class SimpleMLBuilder:
+	def __init__(self, verbose:bool=False):
+		self.verbose = verbose
+		self.log("Fully initialized!")
+	
+	def log(self, *message, sep:str=" ", nonVerbose:bool=False):
+		if self.verbose or nonVerbose:
+			smlb_log(*message, sep=sep)
+	
+	def log_error(self, *message, sep:str=" ", nonVerbose:bool=False):
+		if self.verbose or nonVerbose:
+			smlb_log_error(*message, sep=sep)
+	
+	def get_compiled_model(self) -> Keras.Model:
+		return self.compiledModel
+	
+	def load(self, name:str):
+		self.log("Loading model...")
+		self.compiledModel = Keras.models.load_model(name)
+		self.log("Load complete!")
+
+smlb_log("Initialization successful!")
+
+
+
 IMAGE_SIZE = (64,64)
 DATABASE_DIR = r"C:\Users\HP\Desktop\GitHub\G6-face-recognition-attendance-system\Code\database"
 
@@ -13,7 +63,7 @@ def _remove_extension(fileName:str) -> str:
     index = fileName.rfind(".")
     return fileName[0:index]
 
-def _get_image_embedding(kerasModel:Keras.Model, fileName:str) -> NumPy.ndarray:
+def _get_image_embedding(kerasModel:Keras.Model, absolutePath:str) -> NumPy.ndarray:
     # Load the image via TensorFlow.io.read_file
     imageBinary = TensorFlow.io.read_file(absolutePath)
     # Decode the binary via TensorFlow.io.decode_jpeg
@@ -36,10 +86,11 @@ def _create_image_database(smlb:SimpleMLBuilder) -> dict:
     database = {}
     for currentDirectory, directoryNames, fileNames in os.walk(DATABASE_DIR):
         for fileName in fileNames:
-            database[_remove_extension(fileName)] = _get_image_embedding(kerasModel, fileName)
+            database[_remove_extension(fileName)] = _get_image_embedding(kerasModel, os.path.join(currentDirectory, fileName))
     return database
 
 def _get_image_database(smlb:SimpleMLBuilder) -> dict:
+	nonlocal _image_database
     if _image_database.empty():
         _image_database = _create_image_database(smlb)
     
@@ -53,7 +104,7 @@ def add_image_to_database(imageJpegFilePath:str):
     with open(imageJpegFilePath, "rb") as imageBinaryRead:
         newFileNameStart = imageJpegFilePath.rfind(os.path.sep)+1
         newFileName = imageJpegFilePath[newFileNameStart:]
-        with open(DATABASE_DIR + os.path.sep + newFileName, "wb") as imageBinaryWrite:
+        with open(os.path.join(DATABASE_DIR, newFileName), "wb") as imageBinaryWrite:
             imageBinaryWrite.write(imageBinaryRead.read())
 
 def get_closest_image(imageJpegFilePath:str, threshold:float) -> str:
@@ -78,9 +129,10 @@ def get_closest_image(imageJpegFilePath:str, threshold:float) -> str:
     imageRawResized = TensorFlow.image.resize(
         imageRaw, IMAGE_SIZE, method=TensorFlow.image.ResizeMethod.BICUBIC
     )
+    imageRawReshaped = TensorFlow.reshape(imageRawResized, (1, 64, 64, 3))
     
     kerasModel = smlb.get_compiled_model()
-    compEmbedding = kerasModel(imageRawResized)
+    compEmbedding = kerasModel(imageRawReshaped)
     bestName = ""
     bestDistance = math.inf
 	worstDistance = 0
