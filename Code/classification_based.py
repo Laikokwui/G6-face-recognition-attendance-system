@@ -22,8 +22,10 @@ from tensorflow.keras import regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
 import matplotlib.pyplot as plt
-from sklearn.metrics import roc_curve, confusion_matrix
+from sklearn.metrics import roc_auc_score, confusion_matrix, auc, roc_curve
+from sklearn.preprocessing import LabelBinarizer
 import seaborn as sns
+from itertools import cycle
 
 import warnings
 
@@ -35,10 +37,10 @@ warnings.filterwarnings('ignore')
 ROOT = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/"
 IMG_WIDTH = 64
 IMG_HEIGHT = 64
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 EPOCH_SIZE = 50
 
-TRAINING = True
+TRAINING = False
 PROCESSIMG = False
 DATA_BALANCE = False
 USE_GPU = True
@@ -100,7 +102,7 @@ if PROCESSIMG:
             # if there are only one face in the image
             if len(results) == 1:
                 # loop through results to get the face location
-                for (i, (bbox)) in enumerate(results):
+                for (i, (prob, bbox, centroid)) in enumerate(results):
                     # get the coordinate from bbox
                     (startX, startY, endX, endY) = bbox
                     
@@ -188,7 +190,7 @@ def cnn_model():
     model = Sequential([
         pretrained_model,
         Flatten(),
-        Dense(4096, kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),activation="relu"),
+        Dense(128, kernel_regularizer=regularizers.l1_l2(l1=1e-5, l2=1e-4),activation="relu"),
         Dropout(0.5),
         BatchNormalization(),
         Dense(len(folders), activation='softmax')
@@ -207,7 +209,7 @@ def cnn_model():
         ]
     
     # optimizers choices
-    opt1 = SGD(learning_rate = 0.1, decay=0.01)
+    opt1 = SGD(learning_rate = 0.1, decay=0.0001)
     
     # compile model
     model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = [METRICS,"accuracy"])
@@ -231,7 +233,7 @@ def cnn_model():
     pretrained_model.summary()
     
     # optimizers choices
-    opt1 = SGD(learning_rate = 0.01, decay=0.01)
+    opt1 = SGD(learning_rate = 0.01, decay=0.00001)
     
     model.compile(loss = 'categorical_crossentropy', optimizer = opt1, metrics = [METRICS,"accuracy"])
     
@@ -254,36 +256,6 @@ Model evaluation
     - unpack all the loss and accuracy value
     - plot it down using plt
 """
-colors = plt.rcParams['axes.prop_cycle'].by_key()['color'] 
-   
-def plot_roc(name, labels, predictions, **kwargs):
-    fp, tp, _ = roc_curve(labels, predictions)
-    
-    plt.plot(100*fp, 100*tp, label=name, linewidth=2, **kwargs)
-    plt.xlabel('False positives [%]')
-    plt.ylabel('True positives [%]')
-    plt.xlim([-0.5,20])
-    plt.ylim([80,100.5])
-    plt.grid(True)
-    ax = plt.gca()
-    ax.set_aspect('equal')
-
-
-def plot_cm(labels, predictions, p=0.5):
-    cm = confusion_matrix(labels, predictions > p)
-    plt.figure(figsize=(5,5))
-    sns.heatmap(cm, annot=True, fmt="d")
-    plt.title('Confusion matrix @{:.2f}'.format(p))
-    plt.ylabel('Actual label')
-    plt.xlabel('Predicted label')
-      
-    print('Legitimate Transactions Detected (True Negatives): ', cm[0][0])
-    print('Legitimate Transactions Incorrectly Detected (False Positives): ', cm[0][1])
-    print('Fraudulent Transactions Missed (False Negatives): ', cm[1][0])
-    print('Fraudulent Transactions Detected (True Positives): ', cm[1][1])
-    print('Total Fraudulent Transactions: ', np.sum(cm[1]))
-
-
 def model_evaluation():
     print("Average training accuracy: ", round(np.mean(history.history['accuracy'])*100,2))
     print("Average validation accuracy: ", round(np.mean(history.history['val_accuracy'])*100,2))
@@ -311,24 +283,48 @@ def model_evaluation():
     plt.ylabel('Loss')
     plt.title('Training and validation loss')
     
-    model = keras.models.load_model(save_best_model)
-    
-    train_predictions = model.predict(training_set, batch_size=BATCH_SIZE)
-    test_predictions = model.predict(test_set, batch_size=BATCH_SIZE)
-    plot_roc("Train", training_set.labels, train_predictions, color=colors[0])
-    plot_roc("Test", test_set.labels, test_predictions, color=colors[0], linestyle='--')
-
-    plt.legend(loc='lower right')
-    
-    baseline_results = model.evaluate(test_set, test_set.labels, batch_size=BATCH_SIZE, verbose=0)
-    for name, value in zip(model.metrics_names, baseline_results):
-      print(name, ': ', value)
-    print()
-
-    plot_cm(test_set.labels, test_predictions)
-    
     plt.show()
+    
  
 if TRAINING:
     model_evaluation()
+    
+model = keras.models.load_model(save_best_model)
 
+filenames = test_set.filenames
+nb_samples = len(filenames)
+preds = model.predict_generator(test_set,steps = nb_samples, verbose = 1)
+y_preds = np.argmax(preds, axis = -1)
+
+y_test = test_set.classes
+
+# set plot figure size
+fig, c_ax = plt.subplots(1,1, figsize = (12, 8))
+
+class_list = os.listdir(ROOT+"Datasets/classification_data/train_data")
+target = []
+for i in range(len(class_list)):
+    target.append(class_list[i])
+    if i == 4:
+        break
+
+# function for scoring roc auc score for multi-class
+def multiclass_roc_auc_score(y_test, y_pred, average="macro"):
+    lb = LabelBinarizer()
+    lb.fit(y_test)
+    y_test = lb.transform(y_test)
+    y_pred = lb.transform(y_pred)
+
+    for (idx, c_label) in enumerate(target):
+        fpr, tpr, thresholds = roc_curve(y_test[:,idx].astype(int), y_pred[:,idx])
+        c_ax.plot(fpr, tpr, label = '%s (AUC:%0.2f)'  % (c_label, auc(fpr, tpr)))
+    c_ax.plot(fpr, fpr, 'b-', label = 'Random Guessing')
+    return roc_auc_score(y_test, y_pred, average=average,multi_class='ovo')
+
+
+print('ROC AUC score:', multiclass_roc_auc_score(y_test, y_preds))
+
+c_ax.legend()
+c_ax.set_xlabel('False Positive Rate')
+c_ax.set_ylabel('True Positive Rate')
+plt.show()
