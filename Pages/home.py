@@ -15,22 +15,26 @@ import numpy as np
 from numpy import asarray
 from Code import utilities, yasir_utilities
 
+ROOT = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/"
+
 def app():
     st.title("Home Page")
     st.subheader("Fill Attendance")
     
+    # form structure
     with st.form(key='add_people'):
         image_file = st.file_uploader('Upload photos',type=['jpg'])
         submit_button = st.form_submit_button('Fill Attendance')
-        
+    
+    # run the following code if the button is clicked
     if submit_button:
         if image_file is None:
             st.error("Must upload an image!")
         else:
             # Set parameters for yoloV4
-            labelsPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/obj.names"
-            weightsPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/yolov4-obj_last.weights"
-            configPath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/yolov4/yolov4-obj.cfg"
+            labelsPath = ROOT + "yolov4/obj.names"
+            weightsPath = ROOT + "yolov4/yolov4-obj_last.weights"
+            configPath = ROOT + "yolov4/yolov4-obj.cfg"
             net, ln, labels = utilities.Yolov4Setup(labelsPath, weightsPath, configPath, True)
             
             img = Image.open(image_file)
@@ -52,7 +56,7 @@ def app():
                     
                     # try save the image if not pass
                     try:
-                        imagepath = "C:/Users/Asus/Documents/G6-face-recognition-attendance-system/Datasets/Test/test.jpg"
+                        imagepath = ROOT + "Datasets/Test/test.jpg"
                         cv2.imwrite(imagepath, crop_img)
                     except:
                         pass
