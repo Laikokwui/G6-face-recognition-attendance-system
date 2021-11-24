@@ -19,6 +19,8 @@ Link to the files: http://gofile.me/5Z8ao/Se7iTfnU9
 ```
 streamlit run app.py
 ```
+### 5. get bigger database face from here (optional)
+Link to bigger database file: http://gofile.me/5Z8ao/3Ndxow9fd
 
 ## Appendix
 Streamlit Multiple Page setup: https://github.com/prakharrathi25/data-storyteller/blob/main/multipage.py
