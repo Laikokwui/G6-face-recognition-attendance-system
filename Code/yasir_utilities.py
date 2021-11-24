@@ -36,10 +36,6 @@ class SimpleMLBuilder:
         if self.verbose or nonVerbose:
             smlb_log(*message, sep=sep)
 
-    def log_error(self, *message, sep:str=" ", nonVerbose:bool=False):
-        if self.verbose or nonVerbose:
-            smlb_log_error(*message, sep=sep)
-
     def get_compiled_model(self) -> Keras.Model:
         return self.compiledModel
 
@@ -78,7 +74,7 @@ def _get_image_embedding(kerasModel:Keras.Model, absolutePath:str) -> NumPy.ndar
 def _get_embedding_distance(embedding1, embedding2) -> float:
     """Returns the distance between two embeddings."""
     embeddingDifference = embedding1 - embedding2
-    return math.tanh(NumPy.square(embeddingDifference).sum())
+    return NumPy.square(embeddingDifference).sum()
 
 def _create_image_database(smlb:SimpleMLBuilder) -> dict:
     """Creates a database of image embeddings."""
