@@ -19,7 +19,11 @@ Link to the files: http://gofile.me/5Z8ao/Se7iTfnU9
 ```
 streamlit run app.py
 ```
+### 5. get bigger database face from here (optional)
+Link to bigger database file: http://gofile.me/5Z8ao/3Ndxow9fd
 
 ## Appendix
-Streamlit Multiple Page setup: https://github.com/prakharrathi25/data-storyteller/blob/main/multipage.py
-Darknet Face Detect https://github.com/AlexeyAB/darknet (the one use on the project is not train using python)
+- Streamlit Multiple Page setup: https://github.com/prakharrathi25/data-storyteller/blob/main/multipage.py
+- Darknet Face Detect https://github.com/AlexeyAB/darknet (the one use on the project is not train using python)
+- Video Tutorial Part 1: https://youtu.be/sKDysNtnhJ4 
+- Video Tutorial Part 2: https://youtu.be/-NEB5P-SLi0 
