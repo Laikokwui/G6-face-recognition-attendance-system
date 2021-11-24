@@ -1,3 +1,5 @@
-streamlit==1.1.0
+streamlit==1.2.0
 opencv-python==4.5.4
-tensorflow==2.0.0
+tensorflow==2.7.0
+numpy==1.20.1
+imutils==0.5.4
